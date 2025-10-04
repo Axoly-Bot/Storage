@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use once_cell::sync::OnceCell;
@@ -68,6 +69,11 @@ impl Storage {
     /// Obtiene la instancia global de Storage
     fn get_global() -> &'static Storage {
         INSTANCE.get().expect("Storage is not initialized. Call Storage::init() first.")
+    }
+
+    pub async fn check_connection() -> Result<()> {
+        let storage = Self::get_global();
+        storage.test_connection().await
     }
 
     /// Construye la ruta completa dentro del base_path
