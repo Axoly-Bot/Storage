@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use once_cell::sync::OnceCell;
 use anyhow::{Result, Context, anyhow};
+use russh_sftp::protocol::OpenFlags;
 use serde::{Serialize, Deserialize};
 use tokio::task;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -188,9 +189,10 @@ impl Storage {
         let full_path = self.build_path(path);
         let path_string = full_path.to_string_lossy().into_owned();
 
+
         self.with_sftp(move |sftp| async move {
             let file = sftp
-                .open(&path_string)
+                .open_with_flags(&path_string, OpenFlags::APPEND)
                 .await
                 .context(format!("Failed to open file for append: {}", path_string))?;
             
