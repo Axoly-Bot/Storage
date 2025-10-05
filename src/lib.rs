@@ -192,7 +192,7 @@ impl Storage {
 
         self.with_sftp(move |sftp| async move {
             let file = sftp
-                .open_with_flags(&path_string, OpenFlags::APPEND)
+                .open_with_flags(&path_string, OpenFlags::WRITE | OpenFlags::APPEND | OpenFlags::CREATE)
                 .await
                 .context(format!("Failed to open file for append: {}", path_string))?;
             
