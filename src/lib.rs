@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use once_cell::sync::OnceCell;
@@ -189,12 +188,22 @@ impl Storage {
         let full_path = self.build_path(path);
         let path_string = full_path.to_string_lossy().into_owned();
 
-
         self.with_sftp(move |sftp| async move {
-            let file = sftp
-                .open_with_flags(&path_string, OpenFlags::WRITE | OpenFlags::APPEND | OpenFlags::CREATE)
-                .await
-                .context(format!("Failed to open file for append: {}", path_string))?;
+            // Intentar abrir en modo append (sin CREATE)
+            let file = match sftp.open_with_flags(&path_string, OpenFlags::WRITE | OpenFlags::APPEND).await {
+                Ok(file) => file,
+                Err(e) => {
+                    // Si el error es porque el archivo no existe, crearlo y luego abrirlo en modo append.
+                    if e.to_string().contains("No such file") {
+                        // Crear el archivo (vacío)
+                        let _ = sftp.create(&path_string).await?;
+                        // Ahora abrirlo en modo append
+                        sftp.open_with_flags(&path_string, OpenFlags::WRITE | OpenFlags::APPEND).await?
+                    } else {
+                        return Err(e).context("Failed to open file for append");
+                    }
+                }
+            };
             
             operation(file).await
         }).await
@@ -203,7 +212,50 @@ impl Storage {
     // =================================================================
     // OPERACIONES CRUD ASYNC
     // =================================================================
-
+    pub async fn append_line(path: &str, content: &str) -> Result<()> {
+        let storage = Self::get_global();
+        
+        // CLONA los strings antes de moverlos al closure
+        let path_clone = path.to_string();
+        let content_clone = content.to_string();
+        
+        storage.with_sftp(move |sftp| async move {
+            let full_path = storage.build_path(&path_clone);
+            let path_string = full_path.to_string_lossy().into_owned();
+            
+            // Leer contenido existente
+            let existing_content = match sftp.open(&path_string).await {
+                Ok(mut file) => {
+                    let mut content = String::new();
+                    let _ = file.read_to_string(&mut content).await;
+                    content
+                }
+                Err(_) => String::new(), // Archivo no existe
+            };
+            
+            // Construir nuevo contenido
+            let new_content = if existing_content.is_empty() {
+                format!("{}\n", content_clone)
+            } else if existing_content.ends_with('\n') {
+                format!("{}{}\n", existing_content, content_clone)
+            } else {
+                format!("{}\n{}\n", existing_content, content_clone)
+            };
+            
+            // Escribir todo el contenido
+            let mut file = sftp
+                .create(&path_string)
+                .await
+                .context(format!("Failed to create file: {}", path_string))?;
+            
+            file.write_all(new_content.as_bytes()).await
+                .context("Failed to write file content")?;
+            file.flush().await
+                .context("Failed to flush file")?;
+            
+            Ok(())
+        }).await
+    }
     /// Verifica si un archivo existe (async)
     pub async fn file_exists(path: &str) -> Result<bool> {
         let storage = Self::get_global();

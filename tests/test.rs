@@ -3,7 +3,6 @@
 mod tests {
     use storage::Storage;
 
-    use super::*;
 
     #[tokio::test]
     async fn test_storage_operations() {
@@ -13,11 +12,13 @@ mod tests {
             "username",
             "password",
             Some("/base/dir")
-        ).await.unwrap();
+        )
+        .await.unwrap();
 
-        // Ejemplo de escritura
-        Storage::write("test.txt", "Me vengo en byron").await.unwrap();
         
+        Storage::append_line("test.txt", "skibidi toilet").await.unwrap();
+    
+
         // Ejemplo de lectura
         let content = Storage::get_file("test.txt").await.unwrap();
         println!("Content: {}", content);
