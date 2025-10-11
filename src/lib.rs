@@ -67,7 +67,7 @@ impl Storage {
     }
 
     /// Obtiene la instancia global de Storage
-    fn get_global() -> &'static Storage {
+    pub fn get_global() -> &'static Storage {
         INSTANCE.get().expect("Storage is not initialized. Call Storage::init() first.")
     }
 
@@ -220,7 +220,84 @@ impl Storage {
     {
         let storage = Self::get_global();
         storage.with_sftp(operation).await
-    }        
+    }
+    // Versiones que usan sesión existente
+    pub async fn file_exists_with_session(&self, path: &str, sftp: &SftpSession) -> Result<bool> {
+        let full_path = self.build_path(path);
+        let path_string = full_path.to_string_lossy().into_owned();
+
+        match sftp.metadata(&path_string).await {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                if e.to_string().contains("No such file") {
+                    Ok(false)
+                } else {
+                    Err(anyhow!("Error checking file existence: {}", e))
+                }
+            }
+        }
+    }
+
+    pub async fn write_with_session(&self, path: &str, content: &str, sftp: &SftpSession) -> Result<()> {
+        let full_path = self.build_path(path);
+        let path_string = full_path.to_string_lossy().into_owned();
+
+        let mut file = sftp
+            .create(&path_string)
+            .await
+            .context(format!("Failed to create file: {}", path_string))?;
+        
+        file.write_all(content.as_bytes()).await
+            .context("Failed to write file content")?;
+        file.flush().await
+            .context("Failed to flush file")?;
+        Ok(())
+    }
+
+   pub async fn append_line_with_session(&self, path: &str, content: &str, sftp: &SftpSession) -> Result<()> {
+        let full_path = self.build_path(path);
+        let path_string = full_path.to_string_lossy().into_owned();
+        
+        // Leer contenido existente
+        let existing_content = match sftp.open(&path_string).await {
+            Ok(mut file) => {
+                let mut content = String::new();
+                let _ = file.read_to_string(&mut content).await;
+                content
+            }
+            Err(_) => String::new(), // Archivo no existe
+        };
+        
+        // Construir nuevo contenido
+        let new_content = if existing_content.is_empty() {
+            format!("{}\n", content)
+        } else if existing_content.ends_with('\n') {
+            format!("{}{}\n", existing_content, content)
+        } else {
+            format!("{}\n{}\n", existing_content, content)
+        };
+        
+        // Escribir todo el contenido
+        let mut file = sftp
+            .create(&path_string)
+            .await
+            .context(format!("Failed to create file: {}", path_string))?;
+        
+        file.write_all(new_content.as_bytes()).await
+            .context("Failed to write file content")?;
+        file.flush().await
+            .context("Failed to flush file")?;
+        
+        Ok(())
+    }
+
+    pub async fn create_dir_with_session(&self, path: &str, sftp: &SftpSession) -> Result<()> {
+        let full_path = self.build_path(path);
+        let path_string = full_path.to_string_lossy().into_owned();
+
+        sftp.create_dir(&path_string).await
+            .context("Failed to create directory")
+    }           
 
     pub async fn append_line(path: &str, content: &str) -> Result<()> {
         let storage = Self::get_global();
