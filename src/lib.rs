@@ -212,6 +212,16 @@ impl Storage {
     // =================================================================
     // OPERACIONES CRUD ASYNC
     // =================================================================
+    pub async fn batch<F, Fut, T>(operation: F) -> Result<T>
+    where
+        F: FnOnce(SftpSession) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<T>> + Send,
+        T: Send + 'static,
+    {
+        let storage = Self::get_global();
+        storage.with_sftp(operation).await
+    }        
+
     pub async fn append_line(path: &str, content: &str) -> Result<()> {
         let storage = Self::get_global();
         
